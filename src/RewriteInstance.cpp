@@ -469,9 +469,11 @@ Error RewriteInstance::setProfile(StringRef Filename) {
 
   if (ProfileReader) {
     // Already exists
-    return make_error<StringError>(
+    ProfileReader->moveFromFileNameToList();
+    ProfileReader->pushNewFileName(Filename);
+    /*return make_error<StringError>(
         Twine("multiple profiles specified: ") + ProfileReader->getFilename() +
-        " and " + Filename, inconvertibleErrorCode());
+        " and " + Filename, inconvertibleErrorCode());*/
   }
 
   // Spawn a profile reader based on file contents.

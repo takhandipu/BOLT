@@ -54,6 +54,8 @@ class ProfileReaderBase {
 protected:
   /// Name of the file with profile.
   std::string Filename;
+  bool HasList;
+  std::vector<std::string> FilenameList;
 
 public:
   ProfileReaderBase() = delete;
@@ -61,6 +63,26 @@ public:
   ProfileReaderBase &operator=(const ProfileReaderBase &) = delete;
   ProfileReaderBase(ProfileReaderBase &&) = delete;
   ProfileReaderBase &operator=(ProfileReaderBase &&) = delete;
+  void setFilenameList(std::vector<std::string> FList) {
+    for(const auto &S: FList) {
+      FilenameList.push_back(S);
+    }
+    if (!FList.empty()) {
+      HasList = true;
+    }
+  }
+  void moveFromFileNameToList() {
+    if (FilenameList.empty()) {
+      HasList = true;
+      FilenameList.push_back(Filename);
+    } else {
+      //
+    }
+  }
+  void pushNewFileName(StringRef Filename) {
+    assert(HasList);
+    FilenameList.push_back(Filename);
+  }
 
   /// Construct a reader for a given file.
   explicit ProfileReaderBase(StringRef Filename)
@@ -70,6 +92,8 @@ public:
 
   /// Return the name of the file containing the profile.
   StringRef getFilename() const { return Filename; }
+
+  std::vector<std::string> &getFilenameList() {assert(HasList);return FilenameList;}
 
   /// Instruct the profiler to use address-translation tables.
   virtual void setBAT(BoltAddressTranslation *BAT) {}
