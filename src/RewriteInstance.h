@@ -155,6 +155,8 @@ private:
   /// BinaryFunction object, preparing all information necessary for binary
   /// optimization.
   void disassembleFunctions();
+  
+  void tanvirAnalyzeBinary();
 
   void buildFunctionsCFG();
 

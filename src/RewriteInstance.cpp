@@ -790,6 +790,8 @@ void RewriteInstance::run() {
 
   disassembleFunctions();
 
+  tanvirAnalyzeBinary();
+
   processProfileDataPreCFG();
 
   buildFunctionsCFG();
@@ -2791,6 +2793,15 @@ void RewriteInstance::disassembleFunctions() {
     if (Function.getLSDAAddress() != 0)
       Function.parseLSDA(getLSDAData(), getLSDAAddress());
   }
+}
+
+void RewriteInstance::tanvirAnalyzeBinary() {
+  uint64_t FunctionCount = 0;
+  for (auto &BFI : BC->getBinaryFunctions()) { 
+    BinaryFunction &Function = BFI.second;
+    FunctionCount += 1;
+  }
+  errs() << "BOLT-Tanvir: total function counts, " << FunctionCount << "\n";
 }
 
 void RewriteInstance::buildFunctionsCFG() {
