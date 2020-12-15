@@ -867,6 +867,24 @@ public:
     return *BLI.get();
   }
 
+  uint64_t tanvirAnalyzeFunction(std::vector<uint64_t> &InstructionsPerBBLs, uint64_t &Loads, uint64_t &Stores) {
+    InstructionsPerBBLs.clear();
+    for(const auto &BB: BasicBlocks) {
+      uint64_t ICount = 0;
+      for(const auto &II: BB->instructions()) {
+        ICount++;
+        if (BC.MIB->isLoad(II)) {
+          Loads++;
+        }
+        if (BC.MIB->isStore(II)) {
+          Stores++;
+        }
+      }
+      InstructionsPerBBLs.push_back(ICount);
+    }
+    return BasicBlocks.size();
+  }
+
   bool isLoopFree() {
     if (!hasLoopInfo()) {
       calculateLoopInfo();

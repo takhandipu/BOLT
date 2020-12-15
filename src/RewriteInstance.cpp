@@ -790,11 +790,11 @@ void RewriteInstance::run() {
 
   disassembleFunctions();
 
-  tanvirAnalyzeBinary();
-
   processProfileDataPreCFG();
 
   buildFunctionsCFG();
+
+  tanvirAnalyzeBinary();
 
   processProfileData();
 
@@ -2797,11 +2797,24 @@ void RewriteInstance::disassembleFunctions() {
 
 void RewriteInstance::tanvirAnalyzeBinary() {
   uint64_t FunctionCount = 0;
+  uint64_t BBLCount = 0;
+  uint64_t ICount = 0;
+  uint64_t LoadCount = 0;
+  uint64_t StoreCount = 0;
+  std::vector<uint64_t> ICounts;
   for (auto &BFI : BC->getBinaryFunctions()) { 
     BinaryFunction &Function = BFI.second;
     FunctionCount += 1;
+    BBLCount+=Function.tanvirAnalyzeFunction(ICounts, LoadCount, StoreCount);
+    for(const auto &I : ICounts) {
+      ICount+=I;
+    }
   }
   errs() << "BOLT-Tanvir: total function counts, " << FunctionCount << "\n";
+  errs() << "BOLT-Tanvir: total bbl counts, " << BBLCount << "\n";
+  errs() << "BOLT-Tanvir: total instruction counts, " << ICount << "\n";
+  errs() << "BOLT-Tanvir: total load counts, " << LoadCount << "\n";
+  errs() << "BOLT-Tanvir: total store counts, " << StoreCount << "\n";
 }
 
 void RewriteInstance::buildFunctionsCFG() {
