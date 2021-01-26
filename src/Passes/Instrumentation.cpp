@@ -19,49 +19,48 @@
 using namespace llvm;
 
 namespace opts {
-extern cl::OptionCategory BoltCategory;
+extern cl::OptionCategory BoltInstrCategory;
 
 cl::opt<std::string> InstrumentationFilename(
     "instrumentation-file",
-    cl::desc("file name where instrumented profile will be saved"),
-    cl::init("/tmp/prof.fdata"),
-    cl::Optional,
-    cl::cat(BoltCategory));
+    cl::desc("file name where instrumented profile will be saved (default: "
+             "/tmp/prof.fdata)"),
+    cl::init("/tmp/prof.fdata"), cl::Optional, cl::cat(BoltInstrCategory));
 
 cl::opt<bool> InstrumentationFileAppendPID(
     "instrumentation-file-append-pid",
     cl::desc("append PID to saved profile file name (default: false)"),
     cl::init(false),
     cl::Optional,
-    cl::cat(BoltCategory));
+    cl::cat(BoltInstrCategory));
 
 cl::opt<bool> ConservativeInstrumentation(
     "conservative-instrumentation",
     cl::desc(
         "don't trust our CFG and disable spanning trees and any counter "
         "inference, put a counter everywhere (for debugging, default: false)"),
-    cl::init(false), cl::Optional, cl::cat(BoltCategory));
+    cl::init(false), cl::Optional, cl::cat(BoltInstrCategory));
 
-cl::opt<uint32_t>
-    InstrumentationSleepTime("instrumentation-sleep-time",
-                             cl::desc("interval between profile writes, "
-                                      "default: 0 = write only at program end"),
-                             cl::init(0), cl::Optional,
-                             cl::cat(BoltCategory));
+cl::opt<uint32_t> InstrumentationSleepTime(
+    "instrumentation-sleep-time",
+    cl::desc("interval between profile writes (default: 0 = write only at "
+             "program end).  This is useful for service workloads when you "
+             "want to dump profile every X minutes or if you are killing the "
+             "program and the profile is not being dumped at the end."),
+    cl::init(0), cl::Optional, cl::cat(BoltInstrCategory));
 
-cl::opt<bool> InstrumentHotOnly(
-    "instrument-hot-only",
-    cl::desc("only insert instrumentation on hot functions (need profile)"),
-    cl::init(false),
-    cl::Optional,
-    cl::cat(BoltCategory));
+cl::opt<bool>
+    InstrumentHotOnly("instrument-hot-only",
+                      cl::desc("only insert instrumentation on hot functions "
+                               "(needs profile, default: false)"),
+                      cl::init(false), cl::Optional,
+                      cl::cat(BoltInstrCategory));
 
-cl::opt<bool> InstrumentCalls(
-    "instrument-calls",
-    cl::desc("record profile for inter-function control flow activity"),
-    cl::init(true),
-    cl::Optional,
-    cl::cat(BoltCategory));
+cl::opt<bool> InstrumentCalls("instrument-calls",
+                              cl::desc("record profile for inter-function "
+                                       "control flow activity (default: true)"),
+                              cl::init(true), cl::Optional,
+                              cl::cat(BoltInstrCategory));
 }
 
 namespace llvm {
@@ -282,6 +281,9 @@ void Instrumentation::instrumentFunction(BinaryContext &BC,
                                          BinaryFunction &Function,
                                          MCPlusBuilder::AllocatorIdTy AllocId) {
   if (Function.hasUnknownControlFlow())
+    return;
+
+  if (BC.isMachO() && Function.hasName("___GLOBAL_init_65535/1"))
     return;
 
   SplitWorklistTy SplitWorklist;
@@ -533,6 +535,50 @@ void Instrumentation::runOnFunctions(BinaryContext &BC) {
       SkipPredicate, "instrumentation", /* ForceSequential=*/true);
 
   createAuxiliaryFunctions(BC);
+
+  if (BC.isMachO()) {
+    if (BC.StartFunctionAddress) {
+      BinaryFunction *Main =
+          BC.getBinaryFunctionAtAddress(*BC.StartFunctionAddress);
+      assert(Main && "Entry point function not found");
+      BinaryBasicBlock &BB = Main->front();
+
+      ErrorOr<BinarySection &> SetupSection =
+          BC.getUniqueSectionByName("I__setup");
+      if (!SetupSection) {
+        llvm::errs() << "Cannot find I__setup section\n";
+        exit(1);
+      }
+      MCSymbol *Target = BC.registerNameAtAddress(
+          "__bolt_instr_setup", SetupSection->getAddress(), 0, 0);
+      MCInst NewInst;
+      BC.MIB->createCall(NewInst, Target, BC.Ctx.get());
+      BB.insertInstruction(BB.begin(), std::move(NewInst));
+    } else {
+      llvm::errs() << "BOLT-WARNING: Entry point not found\n";
+    }
+
+    if (BinaryData *BD = BC.getBinaryDataByName("___GLOBAL_init_65535/1")) {
+      BinaryFunction *Ctor = BC.getBinaryFunctionAtAddress(BD->getAddress());
+      assert(Ctor && "___GLOBAL_init_65535 function not found");
+      BinaryBasicBlock &BB = Ctor->front();
+      ErrorOr<BinarySection &> FiniSection =
+          BC.getUniqueSectionByName("I__fini");
+      if (!FiniSection) {
+        llvm::errs() << "Cannot find I__fini section\n";
+        exit(1);
+      }
+      MCSymbol *Target = BC.registerNameAtAddress(
+          "__bolt_instr_fini", FiniSection->getAddress(), 0, 0);
+      auto IsLEA = [&BC](const MCInst &Inst) { return BC.MIB->isLEA64r(Inst); };
+      const auto LEA = std::find_if(std::next(std::find_if(
+          BB.rbegin(), BB.rend(), IsLEA)), BB.rend(), IsLEA);
+      LEA->getOperand(4).setExpr(
+          MCSymbolRefExpr::create(Target, MCSymbolRefExpr::VK_None, *BC.Ctx));
+    } else {
+      llvm::errs() << "BOLT-WARNING: ___GLOBAL_init_65535 not found\n";
+    }
+  }
 
   setupRuntimeLibrary(BC);
 }

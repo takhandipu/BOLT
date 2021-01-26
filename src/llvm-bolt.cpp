@@ -45,10 +45,12 @@ cl::OptionCategory BoltOptCategory("BOLT optimization options");
 cl::OptionCategory BoltRelocCategory("BOLT options in relocation mode");
 cl::OptionCategory BoltOutputCategory("Output options");
 cl::OptionCategory AggregatorCategory("Data aggregation options");
+cl::OptionCategory BoltInstrCategory("BOLT instrumentation options");
 
 static cl::OptionCategory *BoltCategories[] = {&BoltCategory,
                                                &BoltOptCategory,
                                                &BoltRelocCategory,
+                                               &BoltInstrCategory,
                                                &BoltOutputCategory};
 
 static cl::OptionCategory *BoltDiffCategories[] = {&BoltDiffCategory};
@@ -105,12 +107,13 @@ PerfData("perfdata",
 static cl::list<std::string>
 PerfDataList("perf-data-list",
   cl::CommaSeparated,
-  cl::desc("list of perf data files to use as profile"),
-  cl::value_desc("<data file1>,<data file2>,<data file3>,..."),
+  cl::desc("list of perf.data files used as profile"),
+  cl::value_desc("<data file1>,<data file2>,<data file3>..."),
   cl::Optional,
   cl::ZeroOrMore,
   cl::cat(AggregatorCategory),
   cl::sub(*cl::AllSubCommands));
+
 
 static cl::alias
 PerfDataA("p",
@@ -161,29 +164,32 @@ void perf2boltMode(int argc, char **argv) {
       "perf2bolt - BOLT data aggregator\n"
       "\nEXAMPLE: perf2bolt -p=perf.data executable -o data.fdata\n");
   if (opts::PerfData.empty() && opts::PerfDataList.empty()) {
-    errs() << ToolName << ": expected -perfdata=<filename> option.\n";
+    errs() << ToolName << ": expected -perfdata=<filename> or -perf-data-list=<filename1>,<filename2>... option.\n";
     exit(1);
   }
   if (!opts::InputDataFilename.empty()) {
     errs() << ToolName << ": unknown -data option.\n";
     exit(1);
   }
-  if (!opts::PerfDataList.empty()) {
-    for (const auto &P: opts::PerfDataList) {
+ 
+  if (!opts::PerfDataList.empty()){
+    for (auto &P: opts::PerfDataList) {
       if (!sys::fs::exists(P))
         report_error(P, errc::no_such_file_or_directory);
       if (!DataAggregator::checkPerfDataMagic(P)) {
         errs() << ToolName << ": '" << P
-              << "': expected valid perf.data file.\n";
+           << "': expected valid perf.data file.\n";
         exit(1);
       }
     }
-  } else {  
+
+  }
+  else {
     if (!sys::fs::exists(opts::PerfData))
       report_error(opts::PerfData, errc::no_such_file_or_directory);
     if (!DataAggregator::checkPerfDataMagic(opts::PerfData)) {
       errs() << ToolName << ": '" << opts::PerfData
-            << "': expected valid perf.data file.\n";
+           << "': expected valid perf.data file.\n";
       exit(1);
     }
   }
@@ -320,19 +326,33 @@ int main(int argc, char **argv) {
       report_error(opts::InputFilename, std::move(E));
     Binary &Binary = *BinaryOrErr.get().getBinary();
 
+
     if (auto *e = dyn_cast<ELFObjectFileBase>(&Binary)) {
       RewriteInstance RI(e, argc, argv, ToolPath);
-      if (!opts::PerfDataList.empty()) {
-        for (const auto &P: opts::PerfDataList) {
-          if (!opts::AggregateOnly) {
-            errs() << ToolName
-              << ": WARNING: reading perf data directly is unsupported, please use "
-              "-aggregate-only or perf2bolt.\n!!! Proceed on your own risk. !!!\n";
-          }
-          if (auto E = RI.setProfile(P))
-            report_error(P, std::move(E));
+      std::vector<StringRef> PerfDataFilenames;
+      if (!opts::PerfDataList.empty()){
+        for (auto &P: opts::PerfDataList){
+          PerfDataFilenames.push_back(P);
         }
-      } else {  
+        if (!opts::AggregateOnly) {
+          errs() << ToolName
+            << ": WARNING: reading perf data directly is unsupported, please use "
+            "-aggregate-only or perf2bolt.\n!!! Proceed on your own risk. !!!\n";
+        }
+        if (auto E = RI.setMultipleProfile(PerfDataFilenames)) {
+          report_error(PerfDataFilenames[0], std::move(E));
+        }
+        if (!opts::InputDataFilename.empty()) {
+          if (auto E = RI.setProfile(opts::InputDataFilename))
+          report_error(opts::InputDataFilename, std::move(E));
+        }
+        if (opts::AggregateOnly && opts::PerfData.empty() && opts::PerfDataList.empty()) {
+          errs() << ToolName << ": missing required -perfdata option.\n";
+          exit(1);
+        }
+        RI.run();
+      }
+      else {
         if (!opts::PerfData.empty()) {
           if (!opts::AggregateOnly) {
             errs() << ToolName
@@ -342,19 +362,18 @@ int main(int argc, char **argv) {
           if (auto E = RI.setProfile(opts::PerfData))
             report_error(opts::PerfData, std::move(E));
         }
-      }
-      if (!opts::InputDataFilename.empty()) {
-        if (auto E = RI.setProfile(opts::InputDataFilename))
+        if (!opts::InputDataFilename.empty()) {
+          if (auto E = RI.setProfile(opts::InputDataFilename))
           report_error(opts::InputDataFilename, std::move(E));
+        }
+        if (opts::AggregateOnly && opts::PerfData.empty() && opts::PerfDataList.empty()) {
+          errs() << ToolName << ": missing required -perfdata option.\n";
+          exit(1);
+        }
+        RI.run();
       }
-      if (opts::AggregateOnly && opts::PerfData.empty() && opts::PerfDataList.empty()) {
-        errs() << ToolName << ": missing required -perfdata option.\n";
-        exit(1);
-      }
-
-      RI.run();
     } else if (auto *O = dyn_cast<MachOObjectFile>(&Binary)) {
-      MachORewriteInstance MachORI(O);
+      MachORewriteInstance MachORI(O, ToolPath);
       MachORI.run();
     } else {
       report_error(opts::InputFilename, object_error::invalid_file_type);

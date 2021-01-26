@@ -280,6 +280,10 @@ public:
       : ProfileReaderBase(Filename),
         Diag(errs()) {}
 
+  explicit DataReader(std::vector<StringRef> Filenames)
+      : ProfileReaderBase(Filenames),
+        Diag(errs()) {}
+
   StringRef getReaderName() const override {
     return "branch profile reader";
   }

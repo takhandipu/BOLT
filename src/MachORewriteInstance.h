@@ -37,6 +37,7 @@ class BinaryContext;
 
 class MachORewriteInstance {
   object::MachOObjectFile *InputFile;
+  StringRef ToolPath;
   std::unique_ptr<BinaryContext> BC;
 
   NameResolver NR;
@@ -49,6 +50,7 @@ class MachORewriteInstance {
 
   static StringRef getOrgSecPrefix() { return ".bolt.org"; }
 
+  void mapInstrumentationSection(orc::VModuleKey Key, StringRef SectionName);
   void mapCodeSections(orc::VModuleKey Key);
 
   void adjustCommandLineOptions();
@@ -58,10 +60,12 @@ class MachORewriteInstance {
   void postProcessFunctions();
   void runOptimizationPasses();
   void emitAndLink();
+
+  void writeInstrumentationSection(StringRef SectionName, raw_pwrite_stream &OS);
   void rewriteFile();
 
 public:
-  explicit MachORewriteInstance(object::MachOObjectFile *InputFile);
+  MachORewriteInstance(object::MachOObjectFile *InputFile, StringRef ToolPath);
   ~MachORewriteInstance();
 
   /// Run all the necessary steps to read, optimize and rewrite the binary.

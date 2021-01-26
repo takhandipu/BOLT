@@ -276,6 +276,7 @@ void FuncMemData::update(const Location &Offset, const Location &Addr) {
 }
 
 Error DataReader::preprocessProfile(BinaryContext &BC) {
+
   if (auto EC = parseInput()) {
     return errorCodeToError(EC);
   }
@@ -363,46 +364,24 @@ Error DataReader::readProfile(BinaryContext &BC) {
 }
 
 std::error_code DataReader::parseInput() {
-  if (HasList) {
-    for(const auto &FName: FilenameList) {
-      auto MB = MemoryBuffer::getFileOrSTDIN(FName);
-      if (auto EC = MB.getError()) {
-        Diag << "cannot open " << FName << ": " << EC.message() << "\n";
-        return EC;
-      }
-      FileBuf = std::move(MB.get());
-      ParsingBuf = FileBuf->getBuffer();
-      if (auto EC = parse()) {
-        return EC;
-      }
-      if (!ParsingBuf.empty()) {
-        Diag << "WARNING: invalid profile data detected at line " << Line
-            << ". Possibly corrupted profile.\n";
-      }
-
-      buildLTONameMaps();
-    }
-    return std::error_code();
-  } else {    
-    auto MB = MemoryBuffer::getFileOrSTDIN(Filename);
-    if (auto EC = MB.getError()) {
-      Diag << "cannot open " << Filename << ": " << EC.message() << "\n";
-      return EC;
-    }
-    FileBuf = std::move(MB.get());
-    ParsingBuf = FileBuf->getBuffer();
-    if (auto EC = parse()) {
-      return EC;
-    }
-    if (!ParsingBuf.empty()) {
-      Diag << "WARNING: invalid profile data detected at line " << Line
-          << ". Possibly corrupted profile.\n";
-    }
-
-    buildLTONameMaps();
-
-    return std::error_code();
+  auto MB = MemoryBuffer::getFileOrSTDIN(Filename);
+  if (auto EC = MB.getError()) {
+    Diag << "cannot open " << Filename << ": " << EC.message() << "\n";
+    return EC;
   }
+  FileBuf = std::move(MB.get());
+  ParsingBuf = FileBuf->getBuffer();
+  if (auto EC = parse()) {
+    return EC;
+  }
+  if (!ParsingBuf.empty()) {
+    Diag << "WARNING: invalid profile data detected at line " << Line
+         << ". Possibly corrupted profile.\n";
+  }
+
+  buildLTONameMaps();
+
+  return std::error_code();
 }
 
 void DataReader::readProfile(BinaryFunction &BF) {
